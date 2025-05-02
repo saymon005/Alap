@@ -1,0 +1,249 @@
+﻿@{
+    ViewData["Title"] = "Real-Time Chat";
+}
+<style>
+    .chat-box {
+        list-style: none;
+        padding: 10px;
+        height: 300px;
+        overflow-y: scroll;
+        background: #f8f9fa;
+        border: 1px solid #ccc;
+        margin-bottom: 10px;
+        display: flex;
+        flex-direction: column-reverse;
+    }
+
+
+    .typing-indicator {
+        color: gray;
+        font-style: italic;
+        padding: 5px;
+    }
+
+    .msg-actions button {
+        margin-right: 5px;
+        font-size: 0.8rem;
+    }
+
+</style>
+
+<h2>@ViewData["Title"]</h2>
+
+<div class="chat-container">
+    <ul id="messagesList" class="chat-box" onscroll="handleScroll()"></ul>
+
+    <div class="typing-indicator" id="typingIndicator" style="display:none;">
+        Bot is typing...
+    </div>
+
+    <input type="text" id="messageInput" class="form-control" placeholder="Type your message..." />
+    <button class="btn btn-primary mt-2" onclick="sendMessage()">Send</button>
+</div>
+
+@section Scripts {
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/7.0.5/signalr.min.js"></script>
+    <script>
+        let connection;
+
+        async function initSignalR() {
+            connection = new signalR.HubConnectionBuilder()
+                .withUrl("/chathub")
+                .build();
+
+            connection.on("ReceiveMessage", (user, message) => {
+                const li = document.createElement("li");
+                li.innerHTML = `<b>${user}:</b> ${message}`;
+                document.getElementById("messagesList").appendChild(li);
+            });
+
+            connection.on("BotTyping", () => {
+                document.getElementById("typingIndicator").style.display = "block";
+            });
+
+            connection.on("BotDone", () => {
+                document.getElementById("typingIndicator").style.display = "none";
+            });
+
+            try {
+                await connection.start();
+                console.log("SignalR connected!");
+            } catch (err) {
+                console.error("SignalR failed to connect!", err);
+            }
+        }
+
+
+        // async function sendMessage() {
+        //     const input = document.getElementById("messageInput");
+        //     const text = input.value;
+        //     if (!text) return;
+        //     input.value = "";
+
+        //     const response = await fetch("/api/chat/send", {
+        //         method: "POST",
+        //         headers: {
+        //             "Content-Type": "application/json"
+        //         },
+        //         body: JSON.stringify({ message: text })
+        //     });
+
+        //     if (!response.ok) {
+        //         const errText = await response.text();
+        //         console.error("Server error:", errText);
+        //         alert("Chat failed: " + errText);
+        //         return;
+        //     }
+
+        //     const result = await response.json();
+
+        //     if (result?.userMessage && result?.botMessage) {
+        //         connection.invoke("SendMessage", result.userMessage.sender, result.userMessage.message);
+        //         connection.invoke("BotTyping");
+        //         setTimeout(() => {
+        //             connection.invoke("SendMessage", result.botMessage.sender, result.botMessage.message);
+        //             connection.invoke("BotDone");
+        //         }, 1200);
+        //     }
+        // }
+
+        async function sendMessage() {
+            if (!connection || connection.state !== "Connected") {
+                alert("SignalR is not connected.");
+                return;
+            }
+
+            const input = document.getElementById("messageInput");
+            const text = input.value;
+            if (!text) return;
+            input.value = "";
+
+            const response = await fetch("/api/chat/send", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ message: text })
+            });
+
+            if (!response.ok) {
+                const errText = await response.text();
+                console.error("Server error:", errText);
+                alert("Chat failed: " + errText);
+                return;
+            }
+
+            const result = await response.json();
+
+            if (result?.userMessage && result?.botMessage) {
+                await connection.invoke("SendMessage", result.userMessage.sender, result.userMessage.message);
+                await connection.invoke("BotTyping");
+
+                setTimeout(async () => {
+                    await connection.invoke("SendMessage", result.botMessage.sender, result.botMessage.message);
+                    await connection.invoke("BotDone");
+                }, 1200);
+            }
+        }
+
+        async function deleteMessage(id) {
+            if (!confirm("Are you sure you want to delete this message?")) return;
+
+            const response = await fetch(`/api/chat/${id}`, { method: "DELETE" });
+            if (response.ok) {
+                document.querySelector(`li[data-id='${id}']`).remove();
+            } else {
+                alert("Delete failed.");
+            }
+        }
+
+        async function approveMessage(id) {
+            const response = await fetch(`/api/chat/${id}/approve`, { method: "PATCH" });
+            if (response.ok) {
+                alert("Message approved.");
+            } else {
+                alert("Approve failed.");
+            }
+        }
+
+        async function editMessage(id, oldContent) {
+            const newContent = prompt("Edit your message:", oldContent);
+            if (!newContent || newContent === oldContent) return;
+
+            const response = await fetch(`/api/chat/${id}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message: newContent })
+            });
+
+            if (response.ok) {
+                const li = document.querySelector(`li[data-id='${id}']`);
+                li.querySelector(".msg-actions").insertAdjacentHTML("beforebegin", `<b>You:</b> ${newContent}`);
+                li.querySelector(".msg-actions").remove(); 
+            } else {
+                alert("Edit failed.");
+            }
+        }
+
+        // Infinite Scroll
+        let page = 1;
+        const pageSize = 20;
+        let isLoading = false;
+
+        async function loadMessages() {
+            if (isLoading) return;
+            isLoading = true;
+
+            try {
+                const response = await fetch(`/api/chat/history?page=${page}&pageSize=${pageSize}`);
+                const messages = await response.json();
+                const messageList = document.getElementById("messagesList");
+
+                const scrollPosition = messageList.scrollHeight - messageList.scrollTop;
+
+                messages.reverse().forEach(m => {
+                    const li = document.createElement("li");
+                    li.dataset.id = m.id;
+                    li.innerHTML = `
+                                <b>${m.sender}:</b> ${m.message}
+                                <div class="msg-actions">
+                                    ${m.sender !== 'Bot' ? `
+                                        <button class="btn btn-success" onclick="editMessage(${m.id}, '${m.message.replace(/'/g, "\\'")}')">Edit</button>
+                                        <button class="btn btn-danger" onclick="deleteMessage(${m.id})">Delete</button>
+                                        ${isAdmin ? `<button onclick="approveMessage(${m.id})">Approve</button>` : ''}
+                                    ` : ''}
+                                </div>
+                            `;
+                    messageList.prepend(li);
+                });
+
+                if (page === 1) {
+                    messageList.scrollTop = messageList.scrollHeight;
+                } else {
+                    messageList.scrollTop = messageList.scrollHeight - scrollPosition;
+                }
+
+                page++;
+            } catch (err) {
+                console.error("Error loading messages:", err);
+            } finally {
+                isLoading = false;
+            }
+        }
+
+        function handleScroll() {
+            const list = document.getElementById("messagesList");
+            if (list.scrollTop < 50) {
+                loadMessages();
+            }
+        }
+
+        const isAdmin = @(User.IsInRole("Admin").ToString().ToLower());
+
+        window.onload = async () => {
+            await initSignalR();    
+            await loadMessages();   
+        };
+    </script>
+}
+
