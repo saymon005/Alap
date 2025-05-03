@@ -6,6 +6,7 @@ A full-stack, production-ready chatbot platform built using **ASP.NET Core MVC**
 - Edit, Delete, Approve messages (moderation)
 - User authentication (ASP.NET Identity)
 - Clean architecture using Repository + Unit of Work
+- Deploy in Docker
 
 - ## 🛠️ Tech Stack
 
@@ -18,6 +19,7 @@ A full-stack, production-ready chatbot platform built using **ASP.NET Core MVC**
 | Auth        | ASP.NET Identity                     |
 | DB          | SQL Server / LocalDb + EF Core       |
 | Arch        | Repository + Unit of Work Pattern    |
+| Deploy      | Docker                               |
 
 "ConnectionStrings": {
   "DefaultConnection": "Server=host.docker.internal,1433;Database=AlapDb;User Id=saymon;Password=Saymon@005;MultipleActiveResultSets=true;TrustServerCertificate=True;"
