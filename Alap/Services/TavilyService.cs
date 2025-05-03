@@ -28,7 +28,6 @@ namespace Alap.Services
 
             dynamic result = JsonConvert.DeserializeObject(json);
 
-            // Use answer if available, otherwise fallback to results[0].content
             string answer = result?.answer;
             if (string.IsNullOrEmpty(answer) && result?.results != null && result.results.Count > 0)
             {
