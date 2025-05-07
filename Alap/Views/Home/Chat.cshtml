@@ -11,7 +11,7 @@
         border: 1px solid #ccc;
         margin-bottom: 10px;
         display: flex;
-        flex-direction: column-reverse;
+        flex-direction: column;
     }
 
 
@@ -25,6 +25,19 @@
         margin-right: 5px;
         font-size: 0.8rem;
     }
+
+    li[data-approved="true"] {
+        background-color: #e6ffe6;
+        border-left: 5px solid green;
+    }
+
+    li.approved {
+        background-color: #e6ffe6;
+        border-left: 4px solid green;
+        padding-left: 10px;
+    }
+
+
 
 </style>
 
@@ -40,6 +53,7 @@
     <input type="text" id="messageInput" class="form-control" placeholder="Type your message..." />
     <button class="btn btn-primary mt-2" onclick="sendMessage()">Send</button>
 </div>
+<input type="hidden" id="isAdminFlag" value="@User.IsInRole("Admin").ToString()" />
 
 @section Scripts {
     <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/7.0.5/signalr.min.js"></script>
@@ -73,39 +87,16 @@
             }
         }
 
+        window.addEventListener("DOMContentLoaded", () => {
+            document.getElementById("messageInput").addEventListener("keydown", function (event) {
+                if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault(); 
+                    sendMessage(); 
+                }
+            });
 
-        // async function sendMessage() {
-        //     const input = document.getElementById("messageInput");
-        //     const text = input.value;
-        //     if (!text) return;
-        //     input.value = "";
+        });
 
-        //     const response = await fetch("/api/chat/send", {
-        //         method: "POST",
-        //         headers: {
-        //             "Content-Type": "application/json"
-        //         },
-        //         body: JSON.stringify({ message: text })
-        //     });
-
-        //     if (!response.ok) {
-        //         const errText = await response.text();
-        //         console.error("Server error:", errText);
-        //         alert("Chat failed: " + errText);
-        //         return;
-        //     }
-
-        //     const result = await response.json();
-
-        //     if (result?.userMessage && result?.botMessage) {
-        //         connection.invoke("SendMessage", result.userMessage.sender, result.userMessage.message);
-        //         connection.invoke("BotTyping");
-        //         setTimeout(() => {
-        //             connection.invoke("SendMessage", result.botMessage.sender, result.botMessage.message);
-        //             connection.invoke("BotDone");
-        //         }, 1200);
-        //     }
-        // }
 
         async function sendMessage() {
             if (!connection || connection.state !== "Connected") {
@@ -114,8 +105,20 @@
             }
 
             const input = document.getElementById("messageInput");
-            const text = input.value;
-            if (!text) return;
+            const text = input.value.trim();
+
+            if (!text) {
+                alert("Message cannot be empty.");
+                input.focus();
+                return;
+            }
+
+            if (text.length > 500) {
+                alert("Message must be less than 500 characters.");
+                input.focus();
+                return;
+            }
+
             input.value = "";
 
             const response = await fetch("/api/chat/send", {
@@ -136,6 +139,7 @@
             const result = await response.json();
 
             if (result?.userMessage && result?.botMessage) {
+          
                 await connection.invoke("SendMessage", result.userMessage.sender, result.userMessage.message);
                 await connection.invoke("BotTyping");
 
@@ -146,46 +150,70 @@
             }
         }
 
+
         async function deleteMessage(id) {
             if (!confirm("Are you sure you want to delete this message?")) return;
 
             const response = await fetch(`/api/chat/${id}`, { method: "DELETE" });
             if (response.ok) {
-                document.querySelector(`li[data-id='${id}']`).remove();
+                const messageEl = document.querySelector(`li[data-id='${id}']`);
+                if (messageEl) messageEl.remove();
             } else {
-                alert("Delete failed.");
+                alert("Delete failed. Please try again.");
+            }
+        }
+
+        async function editMessage(id, oldContent) {
+            const newContent = prompt("Edit your message:", oldContent);
+            if (newContent === null) return; 
+            const trimmed = newContent.trim();
+
+            if (!trimmed) {
+                alert("Message cannot be empty.");
+                return;
+            }
+            if (trimmed === oldContent.trim()) {
+                alert("No changes detected.");
+                return;
+            }
+            if (trimmed.length > 500) {
+                alert("Message must be under 500 characters.");
+                return;
+            }
+
+            const response = await fetch(`/api/chat/${id}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message: trimmed })
+            });
+
+
+            if (response.ok) {
+                const li = document.querySelector(`li[data-id='${id}']`);
+                if (li) {
+                    li.querySelector(".msg-actions").insertAdjacentHTML("beforebegin", `<b>You:</b> ${trimmed}`);
+                    li.querySelector(".msg-actions").remove();
+                }
+            } else {
+                alert("Edit failed. Please try again.");
             }
         }
 
         async function approveMessage(id) {
             const response = await fetch(`/api/chat/${id}/approve`, { method: "PATCH" });
             if (response.ok) {
-                alert("Message approved.");
-            } else {
-                alert("Approve failed.");
-            }
-        }
-
-        async function editMessage(id, oldContent) {
-            const newContent = prompt("Edit your message:", oldContent);
-            if (!newContent || newContent === oldContent) return;
-
-            const response = await fetch(`/api/chat/${id}`, {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ message: newContent })
-            });
-
-            if (response.ok) {
                 const li = document.querySelector(`li[data-id='${id}']`);
-                li.querySelector(".msg-actions").insertAdjacentHTML("beforebegin", `<b>You:</b> ${newContent}`);
-                li.querySelector(".msg-actions").remove(); 
+                if (li) {
+                    li.classList.add("approved");
+                    li.insertAdjacentHTML("beforeend", `<span class="badge bg-success ms-2">Approved</span>`);
+                }
             } else {
-                alert("Edit failed.");
+                alert("Approve failed. Please try again.");
             }
         }
 
-        // Infinite Scroll
+        // Infinite Scroll 
+
         let page = 1;
         const pageSize = 20;
         let isLoading = false;
@@ -199,31 +227,36 @@
                 const messages = await response.json();
                 const messageList = document.getElementById("messagesList");
 
-                const scrollPosition = messageList.scrollHeight - messageList.scrollTop;
+                //const scrollPosition = messageList.scrollHeight - messageList.scrollTop;
+                const previousScrollHeight = messageList.scrollHeight;
 
-                messages.reverse().forEach(m => {
+                messages.forEach(m => {
                     const li = document.createElement("li");
                     li.dataset.id = m.id;
                     li.innerHTML = `
-                                <b>${m.sender}:</b> ${m.message}
-                                <div class="msg-actions">
-                                    ${m.sender !== 'Bot' ? `
-                                        <button class="btn btn-success" onclick="editMessage(${m.id}, '${m.message.replace(/'/g, "\\'")}')">Edit</button>
-                                        <button class="btn btn-danger" onclick="deleteMessage(${m.id})">Delete</button>
-                                        ${isAdmin ? `<button onclick="approveMessage(${m.id})">Approve</button>` : ''}
-                                    ` : ''}
-                                </div>
-                            `;
-                    messageList.prepend(li);
+                        <b>${m.sender}:</b> ${m.message}
+                        <div class="msg-actions">
+                            ${m.sender !== 'Bot' ? `
+                                <button class="btn btn-success" onclick="editMessage(${m.id}, '${m.message.replace(/'/g, "\\'")}')">Edit</button>
+                                <button class="btn btn-danger" onclick="deleteMessage(${m.id})">Delete</button>
+                                <button class="btn btn-info" onclick="approveMessage(${m.id})">Approve</button>
+                            ` : ''}
+                        </div>
+                    `;
+
+                    messageList.insertBefore(li, messageList.firstChild);
                 });
 
+                const newScrollHeight = messageList.scrollHeight;
+                messageList.scrollTop = newScrollHeight - previousScrollHeight;
+
                 if (page === 1) {
-                    messageList.scrollTop = messageList.scrollHeight;
+                    messageList.scrollTop = messageList.scrollHeight; 
                 } else {
-                    messageList.scrollTop = messageList.scrollHeight - scrollPosition;
+                    messageList.scrollTop = messageList.scrollHeight - previousScrollHeight;
                 }
 
-                page++;
+                page++; 
             } catch (err) {
                 console.error("Error loading messages:", err);
             } finally {
@@ -233,17 +266,18 @@
 
         function handleScroll() {
             const list = document.getElementById("messagesList");
-            if (list.scrollTop < 50) {
+            if (list.scrollTop === 50) { 
                 loadMessages();
             }
         }
 
-        const isAdmin = @(User.IsInRole("Admin").ToString().ToLower());
+        const isAdmin = document.getElementById("isAdminFlag").value.toLowerCase() === "true";
 
         window.onload = async () => {
-            await initSignalR();    
-            await loadMessages();   
+            await initSignalR();
+            await loadMessages();
         };
+
     </script>
 }
 

@@ -5,15 +5,16 @@ using System;
 public class UnitOfWork : IUnitOfWork
 {
     private readonly ApplicationDbContext _context;
+
     public IChatMessageRepository ChatMessages { get; }
 
-    public UnitOfWork(ApplicationDbContext context, IChatMessageRepository chatRepo)
+    public UnitOfWork(ApplicationDbContext context)
     {
         _context = context;
-        ChatMessages = chatRepo;
+        ChatMessages = new ChatMessageRepository(_context);
     }
 
-    public async Task<int> SaveAsync()
+    public async Task<int> SaveChangesAsync()
     {
         return await _context.SaveChangesAsync();
     }

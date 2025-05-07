@@ -4,23 +4,26 @@ namespace Alap.Hubs
 {
     public class ChatHub : Hub
     {
-        public async Task SendMessage(string user, string message)
+        public async Task SendMessage(string sender, string message)
         {
-            await Clients.All.SendAsync("ReceiveMessage", user, message);
+            await Clients.User(Context.UserIdentifier).SendAsync("ReceiveMessage", sender, message);
         }
         public async Task BotTyping()
         {
-            await Clients.All.SendAsync("BotTyping");
+            await Clients.User(Context.UserIdentifier).SendAsync("BotTyping");
         }
 
         public async Task BotDone()
         {
-            await Clients.All.SendAsync("BotDone");
+            await Clients.User(Context.UserIdentifier).SendAsync("BotDone");
         }
-        public async Task TypingIndicator(string user)
+
+        public async Task TypingIndicator()
         {
+            var user = Context.User.Identity.Name;
             await Clients.Others.SendAsync("UserTyping", user);
         }
     }
+
 
 }

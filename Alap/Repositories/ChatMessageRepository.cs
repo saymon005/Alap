@@ -13,7 +13,19 @@ public class ChatMessageRepository : IChatMessageRepository
         _context = context;
     }
 
-    public async Task<IEnumerable<ChatMessage>> GetUserMessagesAsync(string userId, int page, int pageSize)
+    public async Task AddAsync(ChatMessage message)
+    {
+        await _context.ChatMessages.AddAsync(message);
+    }
+
+    public async Task<ChatMessage?> GetByIdAsync(int id)
+    {
+        return await _context.ChatMessages
+                             .FirstOrDefaultAsync(m => m.Id == id && !m.IsDeleted);
+    }
+
+
+    public async Task<List<ChatMessage>> GetUserMessagesAsync(string userId, int page, int pageSize)
     {
         return await _context.ChatMessages
             .Where(m => m.UserId == userId && !m.IsDeleted)
@@ -22,19 +34,5 @@ public class ChatMessageRepository : IChatMessageRepository
             .Take(pageSize)
             .ToListAsync();
     }
-
-    public async Task<ChatMessage> GetByIdAsync(int id)
-    {
-        return await _context.ChatMessages.FindAsync(id);
-    }
-
-    public async Task AddAsync(ChatMessage message)
-    {
-        await _context.ChatMessages.AddAsync(message);
-    }
-
-    public void Update(ChatMessage message)
-    {
-        _context.ChatMessages.Update(message);
-    }
 }
+

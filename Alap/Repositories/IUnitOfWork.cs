@@ -3,7 +3,7 @@
     public interface IUnitOfWork
     {
         IChatMessageRepository ChatMessages { get; }
-        Task<int> SaveAsync();
+        Task<int> SaveChangesAsync();
     }
 
 }

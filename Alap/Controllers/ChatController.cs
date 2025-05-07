@@ -1,6 +1,7 @@
 ﻿using Alap.Data;
 using Alap.DTOs;
 using Alap.Models;
+using Alap.Repositories;
 using Alap.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -14,13 +15,14 @@ namespace Alap.Controllers
     [Authorize]
     public class ChatController : ControllerBase
     {
-        private readonly ApplicationDbContext _context;
+        private readonly IUnitOfWork _unitOfWork;
         private readonly TavilyService _tavily;
         private readonly UserManager<IdentityUser> _userManager;
 
-        public ChatController(ApplicationDbContext context, TavilyService tavily, UserManager<IdentityUser> userManager)
+        public ChatController(IUnitOfWork unitOfWork, TavilyService tavily,
+            UserManager<IdentityUser> userManager)
         {
-            _context = context;
+            _unitOfWork = unitOfWork;
             _tavily = tavily;
             _userManager = userManager;
         }
@@ -28,21 +30,27 @@ namespace Alap.Controllers
         [HttpPost("send")]
         public async Task<IActionResult> SendMessage([FromBody] SendMessageRequest request)
         {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
             var user = await _userManager.GetUserAsync(User);
             if (user == null) return Unauthorized();
+
+            var trimmedMessage = request.Message?.Trim();
+            if (string.IsNullOrWhiteSpace(trimmedMessage))
+                return BadRequest("Message cannot be empty or whitespace.");
 
             var userMessage = new ChatMessage
             {
                 UserId = user.Id,
                 Sender = user.UserName,
-                Message = request.Message
+                Message = trimmedMessage
             };
 
-            _context.ChatMessages.Add(userMessage);
-            await _context.SaveChangesAsync();
+            await _unitOfWork.ChatMessages.AddAsync(userMessage);
+            await _unitOfWork.SaveChangesAsync();
 
             var botReply = await _tavily.GetBotResponse(request.Message);
-
             var botMessage = new ChatMessage
             {
                 UserId = user.Id,
@@ -50,8 +58,8 @@ namespace Alap.Controllers
                 Message = botReply
             };
 
-            _context.ChatMessages.Add(botMessage);
-            await _context.SaveChangesAsync();
+            await _unitOfWork.ChatMessages.AddAsync(botMessage);
+            await _unitOfWork.SaveChangesAsync();
 
             return Ok(new
             {
@@ -60,52 +68,51 @@ namespace Alap.Controllers
             });
         }
 
+
         [HttpGet("history")]
         public async Task<IActionResult> GetHistory(int page = 1, int pageSize = 20)
         {
             var user = await _userManager.GetUserAsync(User);
             if (user == null) return Unauthorized();
 
-            var messages = await _context.ChatMessages
-                .Where(m => m.UserId == user.Id && !m.IsDeleted)
-                .OrderByDescending(m => m.Timestamp)
-                .Skip((page - 1) * pageSize)
-                .Take(pageSize)
-                .ToListAsync();
-
+            var messages = await _unitOfWork.ChatMessages.GetUserMessagesAsync(user.Id, page, pageSize);
             return Ok(messages);
         }
 
         [HttpPut("{id}")]
         public async Task<IActionResult> EditMessage(int id, [FromBody] EditMessageRequest request)
         {
-            var message = await _context.ChatMessages.FindAsync(id);
-            if (message == null || message.IsDeleted)
-                return NotFound();
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var message = await _unitOfWork.ChatMessages.GetByIdAsync(id);
+            if (message == null || message.IsDeleted) return NotFound();
 
             var user = await _userManager.GetUserAsync(User);
-            if (message.UserId != user.Id)
-                return Forbid();
+            if (user == null || message.UserId != user.Id) return Forbid();
 
-            message.Message = request.Message;
-            await _context.SaveChangesAsync();
+            var trimmedMessage = request.Message?.Trim();
+            if (string.IsNullOrWhiteSpace(trimmedMessage))
+                return BadRequest("Message cannot be empty or whitespace.");
+
+            message.Message = trimmedMessage;
+            await _unitOfWork.SaveChangesAsync();
 
             return Ok(message);
         }
 
+
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteMessage(int id)
         {
-            var message = await _context.ChatMessages.FindAsync(id);
-            if (message == null || message.IsDeleted)
-                return NotFound();
+            var message = await _unitOfWork.ChatMessages.GetByIdAsync(id);
+            if (message == null || message.IsDeleted) return NotFound();
 
             var user = await _userManager.GetUserAsync(User);
-            if (message.UserId != user.Id)
-                return Forbid();
+            if (message.UserId != user.Id) return Forbid();
 
             message.IsDeleted = true;
-            await _context.SaveChangesAsync();
+            await _unitOfWork.SaveChangesAsync();
 
             return NoContent();
         }
@@ -114,14 +121,14 @@ namespace Alap.Controllers
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> ApproveMessage(int id)
         {
-            var message = await _context.ChatMessages.FindAsync(id);
-            if (message == null || message.IsDeleted)
-                return NotFound();
+            var message = await _unitOfWork.ChatMessages.GetByIdAsync(id);
+            if (message == null || message.IsDeleted) return NotFound();
 
             message.IsApproved = true;
-            await _context.SaveChangesAsync();
+            await _unitOfWork.SaveChangesAsync();
 
             return Ok(message);
         }
     }
+
 }
